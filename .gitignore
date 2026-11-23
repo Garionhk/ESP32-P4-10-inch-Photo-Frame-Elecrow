@@ -1,0 +1,9 @@
+build/
+managed_components/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+.DS_Store
+__pycache__/
+*.old-board
+pre-elecrow-port-backup.tar.gz
