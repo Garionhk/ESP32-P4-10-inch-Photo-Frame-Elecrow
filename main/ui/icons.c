@@ -207,10 +207,17 @@ void icon_draw_daylight(lv_obj_t *canvas, float frac)
     lv_layer_t l;
     lv_canvas_init_layer(canvas, &l);
 
-    const int cx = ARC_W / 2, cy = 400, R = 390;
+    // Same construction at any canvas width: a chord as wide as the canvas
+    // with a 30 px sagitta. At the design's 300 px this is exactly R = 390
+    // and 247.4..292.6 deg; a narrower rail gets a narrower, equally shallow arc.
+    const int   W  = cw(canvas);
+    const float c  = (float)W, sag = 30.0f;
+    const int   R  = (int)(c * c / (8.0f * sag) + sag / 2.0f);
+    const int   cx = W / 2, cy = 10 + R;          // apex 10 px below the top
+    const float half = asinf((c / 2.0f) / (float)R) * 180.0f / (float)M_PI;
     // Endpoints of the visible sliver, in LVGL's angle convention
     // (0 deg = 3 o'clock, increasing clockwise, so the top is 270).
-    const float a0 = 247.4f, a1 = 292.6f, span = a1 - a0;
+    const float a0 = 270.0f - half, a1 = 270.0f + half, span = a1 - a0;
 
     lv_draw_arc_dsc_t d;
     lv_draw_arc_dsc_init(&d);

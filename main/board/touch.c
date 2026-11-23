@@ -152,42 +152,30 @@ esp_err_t touch_init(void)
 // Map the panel's raw coordinates into VIEW space -- the space the user is
 // actually looking at.
 //
-// The panel always reports in its own native portrait frame. In landscape the
-// view is turned 90 degrees against it, so a swipe the user makes upward
-// arrives as movement along the panel's X axis and every direction comes out
-// wrong. Only the 180 case was handled before, which is why portrait worked
-// and landscape did not.
+// The GT911 reports in the panel's own native frame (1024x600, landscape).
+// When the view is turned against the panel (display_view_rotated(): PORTRAIT
+// on this board) a swipe the user makes upward arrives as movement along a
+// panel axis, so it has to be mapped back.
 //
-// This is the INVERSE of the rotation the compositor applies to put view
-// content on the panel, derived from the same two settings, so it cannot drift
-// away from what is on screen:
+// The mapping is the exact INVERSE of the rotation the compositor applies:
+// photo.c and overlay.c both use PPA_SRM_ROTATION_ANGLE_90 for a rotated view
+// (270 with rotate180), and ppa.h documents those angles as counter-clockwise.
+// A 90 deg CCW turn sends view (vx,vy) to panel (vy, VMAX-vx), so:
 //
 //   not rotated           view = panel
 //   not rotated + 180     view = panel mirrored in both axes
-//   rotated               vx = py,         vy = HMAX - px
-//   rotated + 180         vx = VMAX - py,  vy = px
+//   rotated   (PPA 90)    vx = VMAX - py,  vy = px
+//   rotated + 180 (270)   vx = py,         vy = HMAX - px
 //
-// "Rotated" is display_view_rotated(): the view disagrees with the panel's
-// native scan. On the old portrait panel that was landscape; on this
-// landscape-native panel it is PORTRAIT. The two rotated rows are the inverse
-// of the PPA's 90/270 turn and were MEASURED on the old board (the first
-// attempt had them the other way round); they are written in panel terms, so
-// they should carry over -- but re-check a swipe in portrait on this board.
+// Cross-check: the overlay band for a rotated view sits at the panel's far x
+// edge (display_w - strip height); view bottom maps to px = HMAX there.
 //
-// Deriving them looks easy and is not. ppa.h documents its rotation as
-// counter-clockwise, but that only fixes how view pixels land on the panel --
-// it does not fix which way the user physically turns the device, and the
-// relationship between "the user's up" and a panel axis depends on that turn.
-// The obvious cross-check does not settle it either: the overlay band sits at
-// panel x 712..799 in plain landscape and 0..87 with rotate180, and BOTH
-// rotation directions put the band in the same place, differing only in how
-// the strip is mirrored inside it. So the placement check passes cleanly
-// against a wrong transform, which is exactly what happened.
-//
-// What settled it: swiping on the device. Up and down came out reversed in
-// both landscape mountings, and since the two rows are each other's mirror,
-// swapping them is a rotation rather than a reflection -- so left/right stay
-// consistent for any gesture added later.
+// HISTORY: the previous board (Guition, GSL3680 touch) had these two rows the
+// other way round, MEASURED by swiping, because its touch controller reported
+// rotated 180 deg against its own panel. Carried over unchanged, they reversed
+// up and down in portrait on this board -- which is how the derivation above
+// was checked. The physical way the user turns the device does not enter into
+// it: the PPA fixes how view pixels land on the panel, and touch follows that.
 static void to_view(int px, int py, int *vx, int *vy)
 {
     const int HMAX = PANEL_H_RES - 1, VMAX = PANEL_V_RES - 1;
@@ -195,11 +183,11 @@ static void to_view(int px, int py, int *vx, int *vy)
         *vx = g_settings.rotate180 ? HMAX - px : px;
         *vy = g_settings.rotate180 ? VMAX - py : py;
     } else if (!g_settings.rotate180) {
-        *vx = py;
-        *vy = HMAX - px;
-    } else {
         *vx = VMAX - py;
         *vy = px;
+    } else {
+        *vx = py;
+        *vy = HMAX - px;
     }
 }
 

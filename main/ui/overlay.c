@@ -65,6 +65,7 @@ static lv_obj_t *s_sun_rise, *s_sun_set, *s_icon_moon, *s_moon_txt;
 static lv_obj_t *s_daylen, *s_arc;
 static lv_obj_t *s_aqi_num, *s_aqi_lbl, *s_aqi_pm;
 // Landscape ticker extras
+static int       s_pad = STRIP_PAD_X;   // rail cell padding; tighter when narrow
 static bool      s_land;            // the two-row ticker layout is in use
 static bool      s_moon_oneline;    // ticker writes the phase on one line
 static lv_obj_t *s_aqi_seg[5];      // the 5-segment AQI scale
@@ -114,7 +115,7 @@ static lv_obj_t *cell(lv_obj_t *row, int w, lv_flex_align_t cross)
     lv_obj_set_size(c, w, LV_PCT(100));
     lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(c, LV_FLEX_ALIGN_CENTER, cross, cross);
-    lv_obj_set_style_pad_hor(c, STRIP_PAD_X, 0);
+    lv_obj_set_style_pad_hor(c, s_pad, 0);
     lv_obj_set_style_pad_row(c, STRIP_RHYTHM, 0);
     return c;
 }
@@ -164,7 +165,7 @@ static void build_status_row(lv_obj_t *parent, const theme_t *th)
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN,
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(row, STRIP_PAD_X, 0);
+    lv_obj_set_style_pad_hor(row, s_pad, 0);
     // 1 px rule above the status row, in the dim step.
     lv_obj_set_style_border_color(row, lv_color_hex(th->dim), 0);
     lv_obj_set_style_border_width(row, 1, 0);
@@ -189,7 +190,11 @@ static void build_status_row(lv_obj_t *parent, const theme_t *th)
     lv_obj_set_flex_flow(right, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(right, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(right, 26, 0);
-    lv_obj_set_size(right, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    // FIXED width, end-aligned. Content-sized, it was measured while the
+    // uptime label was still empty and came out short by exactly the 26 px
+    // gap, pushing the page dots outside it where they were clipped. The
+    // widest content is "up 99d 23h" (~95) + 26 + the dots (20): 180 holds it.
+    lv_obj_set_size(right, 180, LV_SIZE_CONTENT);
 
     // Layout 3c puts a page indicator here rather than the signal/battery
     // cluster of 2a: two 7 px dots, the active one in the accent. It tells you
@@ -200,7 +205,11 @@ static void build_status_row(lv_obj_t *parent, const theme_t *th)
     lv_obj_set_flex_flow(dots, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(dots, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(dots, 6, 0);
-    lv_obj_set_size(dots, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    // EXPLICIT size. Content-sized inside the content-sized `right` group, it
+    // resolved to nothing when `right` was measured, so `right` came out too
+    // narrow and the dots were laid out 32 px outside it -- clipped away. The
+    // page indicator was simply never visible. (The fit check found it.)
+    lv_obj_set_size(dots, MAX_PAGES * 7 + (MAX_PAGES - 1) * 6, 7);
     for (int i = 0; i < MAX_PAGES; i++) {
         lv_obj_t *d = plain(dots);
         lv_obj_set_size(d, 7, 7);
@@ -232,16 +241,21 @@ static void build_status_row(lv_obj_t *parent, const theme_t *th)
 // The time and condition cells have room to spare, so the width comes from
 // them and the design's proportions bend rather than its content breaking.
 //
-// The widths were drawn for an 800 px rail. They are now scaled to the actual
-// rail width (600 px on the CrowPanel's portrait view), so the proportions hold
-// on any panel -- but at 600 px the right cell is ~238 px, under the ~262 px
-// its content wants. Expect clipping in PORTRAIT on this board until the rail
-// gets a narrower design; landscape (the native mode) is unaffected.
-#define RAIL_DESIGN_W 800
-#define RAIL_SCALE(px) ((px) * s_w / RAIL_DESIGN_W)
-#define CELL_L RAIL_SCALE(240)
-#define CELL_M RAIL_SCALE(240)
-#define CELL_R (s_w - 2 - CELL_L - CELL_M)   // 318 at 800: takes the remainder
+// NARROW RAIL. The widths above were drawn for an 800 px rail. The CrowPanel's
+// portrait view is 600 px, and scaling them proportionally (the first attempt)
+// gave a 180 px time cell with 132 px of room for a 155 px clock: the digits
+// ran into the divider and the date lost its last character. Scaling is the
+// wrong model -- the TEXT does not shrink -- so the narrow rail gets widths
+// sized to its content instead, measured on the panel:
+//   time cell   clock ~155, date 176 ("Wed 31 Dec 1969")     -> 212
+//   condition   56 icon + 12 gap + ~100 text (wraps beyond)  -> 210
+//   temperature the remainder, 176: "-12°C" ~135, hi/lo 146
+// with 14 px of cell padding rather than 24. overlay_check_fit() logs any
+// element that still escapes its cell, so this is checked, not assumed.
+#define RAIL_NARROW (s_w < 700)
+#define CELL_L (RAIL_NARROW ? 212 : 240)
+#define CELL_M (RAIL_NARROW ? 210 : 240)
+#define CELL_R (s_w - 2 - CELL_L - CELL_M)   // the remainder: 318 at 800, 176 at 600
 
 static void build_page_weather(lv_obj_t *page, const theme_t *th)
 {
@@ -260,8 +274,8 @@ static void build_page_weather(lv_obj_t *page, const theme_t *th)
     lv_obj_set_size(c2, CELL_M, LV_PCT(100));
     lv_obj_set_flex_flow(c2, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(c2, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(c2, STRIP_PAD_X, 0);
-    lv_obj_set_style_pad_column(c2, 16, 0);
+    lv_obj_set_style_pad_hor(c2, s_pad, 0);
+    lv_obj_set_style_pad_column(c2, RAIL_NARROW ? 12 : 16, 0);
 
     s_icon_wx = icon_create_sized(c2, 56, 56);
 
@@ -278,7 +292,8 @@ static void build_page_weather(lv_obj_t *page, const theme_t *th)
     // width made the icon-plus-text group 250 px wide inside a 218 px cell,
     // so the whole group sat hard left and overflowed instead of centring.
     lv_obj_set_width(s_cond_txt, LV_SIZE_CONTENT);
-    lv_obj_set_style_max_width(s_cond_txt, 170, 0);
+    lv_obj_set_style_max_width(s_cond_txt,
+        RAIL_NARROW ? CELL_M - 2 * s_pad - 56 - 12 : 170, 0);
 
     divider(page, th);
 
@@ -300,7 +315,7 @@ static void build_page_weather(lv_obj_t *page, const theme_t *th)
     lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(r, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(r, 6, 0);
-    lv_obj_set_size(r, CELL_R - 2 * STRIP_PAD_X, 26);
+    lv_obj_set_size(r, CELL_R - 2 * s_pad, 26);
     s_hilo_row = r;
 
     // "feels" removed at the user's request: the row carries the high and low
@@ -339,9 +354,11 @@ static void build_page_weather(lv_obj_t *page, const theme_t *th)
 // during the cross-fade; that is true of 3c's own screen 2, but 3b deliberately
 // re-weights them to make room for the track. Following 3b is the instruction,
 // so the rules do move between screens here.
-#define SUN_C1 RAIL_SCALE(350)              // 1.45fr
-#define SUN_C2 RAIL_SCALE(242)              // 1.00fr
-#define SUN_C3 (s_w - 2 - SUN_C1 - SUN_C2)  // 0.85fr, the remainder (206 at 800)
+// Narrow rail: the arc shrinks to fit (it is drawn to its canvas width), the
+// moon keeps enough for "Waxing Crescent" (~135 px), and the AQI takes the rest.
+#define SUN_C1 (RAIL_NARROW ? 230 : 350)    // 1.45fr
+#define SUN_C2 (RAIL_NARROW ? 170 : 242)    // 1.00fr
+#define SUN_C3 (s_w - 2 - SUN_C1 - SUN_C2)  // 0.85fr, the remainder (206 at 800, 198 at 600)
 
 static void build_page_sun(lv_obj_t *page, const theme_t *th)
 {
@@ -350,20 +367,26 @@ static void build_page_sun(lv_obj_t *page, const theme_t *th)
     lv_obj_set_size(c1, SUN_C1, LV_PCT(100));
     lv_obj_set_flex_flow(c1, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(c1, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(c1, STRIP_PAD_X, 0);
+    lv_obj_set_style_pad_hor(c1, s_pad, 0);
     lv_obj_set_style_pad_ver(c1, 14, 0);
 
     lv_obj_t *top = plain(c1);
-    lv_obj_set_size(top, SUN_C1 - 2 * STRIP_PAD_X, LV_SIZE_CONTENT);
+    lv_obj_set_size(top, SUN_C1 - 2 * s_pad, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
     label(top, FONT_LABEL, th->dim, 5, "DAYLIGHT");
     s_daylen = label(top, FONT_STATUS, th->dim, 0, "");
 
-    s_arc = icon_create_sized(c1, ARC_W, ARC_H);
+    // As wide as the cell allows, capped at the design's 300. A fixed 300 px
+    // canvas overran a 600 px rail's daylight cell on both sides.
+    {
+        int aw = SUN_C1 - 2 * s_pad;
+        if (aw > ARC_W) aw = ARC_W;
+        s_arc = icon_create_sized(c1, aw, ARC_H);
+    }
 
     lv_obj_t *ends = plain(c1);
-    lv_obj_set_size(ends, SUN_C1 - 2 * STRIP_PAD_X, LV_SIZE_CONTENT);
+    lv_obj_set_size(ends, SUN_C1 - 2 * s_pad, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(ends, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(ends, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     // Sunrise and sunset read as the ENDS OF THE TRACK rather than as two
@@ -399,16 +422,23 @@ static void build_page_sun(lv_obj_t *page, const theme_t *th)
     lv_obj_set_size(c3, SUN_C3, LV_PCT(100));
     lv_obj_set_flex_flow(c3, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(c3, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-    lv_obj_set_style_pad_hor(c3, STRIP_PAD_X, 0);
-    lv_obj_set_style_pad_ver(c3, 14, 0);
+    lv_obj_set_style_pad_hor(c3, s_pad, 0);
+    // Caption, a 56 px number and two lines of detail are taller than the
+    // 132 px row at the usual 14 px inset, and SPACE_BETWEEN then pushes the
+    // caption off the top. A 4 px inset and a trimmed number box fit it.
+    lv_obj_set_style_pad_ver(c3, 4, 0);
     label(c3, FONT_LABEL, th->dim, 5, "AQI");
     // 62 px in the design; FONT_VALUE is 56 and close enough that a whole
     // extra face is not worth the flash and the glyph cache.
     s_aqi_num = label(c3, FONT_VALUE, th->t1, 0, "--");
+    // The face's line box is ~73 px, but digits sit in its lower part: the top
+    // ~18 px is accent headroom digits never use. A 60 px box keeps every digit
+    // and gives back the space the row is short of.
+    lv_obj_set_height(s_aqi_num, 60);
     lv_obj_t *bot = plain(c3);
     lv_obj_set_flex_flow(bot, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(bot, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-    lv_obj_set_style_pad_row(bot, 5, 0);
+    lv_obj_set_style_pad_row(bot, 0, 0);
     lv_obj_set_size(bot, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     s_aqi_lbl = label(bot, FONT_DETAIL, th->acc, 0, "");
     s_aqi_pm  = label(bot, FONT_STATUS, th->dim, 0, "");
@@ -649,6 +679,66 @@ static void build(void)
 }
 
 // ---------------------------------------------------------------------------
+// Fit check: log every element that escapes its parent's content box.
+//
+// The rail's widths are hand-set against real text, and "it looked fine on my
+// panel" is how the 800 px widths ended up clipping on a 600 px one. This
+// walks the live tree after layout, with real data in the labels, and names
+// each overflow by size and position -- so a fit is confirmed from the serial
+// log rather than from photographs. Each offender is reported once per change
+// in its overflow, so a resting frame is quiet.
+// ---------------------------------------------------------------------------
+static int fit_walk(lv_obj_t *o, int depth, int *reported)
+{
+    int bad = 0;
+    const uint32_t n = lv_obj_get_child_count(o);
+    lv_area_t pa;
+    lv_obj_get_coords(o, &pa);
+    const int pl = pa.x1 + lv_obj_get_style_pad_left(o, 0);
+    const int pr = pa.x2 - lv_obj_get_style_pad_right(o, 0);
+    const int pt = pa.y1 + lv_obj_get_style_pad_top(o, 0);
+    const int pb = pa.y2 - lv_obj_get_style_pad_bottom(o, 0);
+    for (uint32_t i = 0; i < n; i++) {
+        lv_obj_t *c = lv_obj_get_child(o, i);
+        lv_area_t a;
+        lv_obj_get_coords(c, &a);
+        const int over_l = pl - a.x1, over_r = a.x2 - pr;
+        const int over_t = pt - a.y1, over_b = a.y2 - pb;
+        if (over_l > 0 || over_r > 0 || over_t > 0 || over_b > 0) {
+            bad++;
+            if (*reported < 12) {
+                const char *txt = lv_obj_check_type(c, &lv_label_class) ? lv_label_get_text(c) : "";
+                ESP_LOGW(TAG, "fit: depth %d child %u (%dx%d) \"%s\" overflows L%d R%d T%d B%d",
+                         depth, (unsigned)i, lv_area_get_width(&a), lv_area_get_height(&a), txt,
+                         over_l > 0 ? over_l : 0, over_r > 0 ? over_r : 0,
+                         over_t > 0 ? over_t : 0, over_b > 0 ? over_b : 0);
+                (*reported)++;
+            }
+        }
+        bad += fit_walk(c, depth + 1, reported);
+    }
+    return bad;
+}
+
+static void overlay_check_fit(void)
+{
+    lv_obj_t *scr = lv_screen_active();
+    lv_obj_update_layout(scr);
+    static int last_bad = -1;
+    int reported = 0;
+    // Only print when the picture changes; the first pass always prints.
+    int bad = 0;
+    {
+        int quiet = 99;              // count without printing
+        bad = fit_walk(scr, 0, &quiet);
+    }
+    if (bad == last_bad) return;
+    last_bad = bad;
+    if (bad == 0) { ESP_LOGI(TAG, "fit: every element inside its cell (%dx%d strip)", s_w, s_h); return; }
+    fit_walk(scr, 0, &reported);
+    ESP_LOGW(TAG, "fit: %d element(s) overflow the %dx%d strip", bad, s_w, s_h);
+}
+
 static void refresh(void)
 {
     char b[64];
@@ -812,6 +902,13 @@ static void refresh(void)
         else             snprintf(b, sizeof(b), "up %lldh %02lldm", up / 3600, (up % 3600) / 60);
         lv_label_set_text(s_st_up, b);
     }
+
+    // With real data in the labels, every few seconds: text changes width
+    // (a new condition, a two-digit temperature), so one check at build time
+    // would miss exactly the cases that overflow.
+    static int64_t last_fit;
+    const int64_t now_us = esp_timer_get_time();
+    if (now_us - last_fit > 5000000) { last_fit = now_us; overlay_check_fit(); }
 }
 
 // ---------------------------------------------------------------------------
@@ -842,6 +939,7 @@ esp_err_t overlay_init(int display_w, int display_h, const overlay_cfg_t *cfg)
     (void)view_h;
     s_h = s_land ? BAND_H : STRIP_HAIRLINE_H + STRIP_DATA_H + STRIP_STATUS_H;
     s_cfg = *cfg;
+    s_pad = (!s_land && s_w < 700) ? 14 : STRIP_PAD_X;
 
     // Then place it in panel space. A view rotated against the panel (see
     // display_view_rotated) uses 90 degrees, exactly as photos do, so its
