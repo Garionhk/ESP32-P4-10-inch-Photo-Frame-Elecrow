@@ -10,6 +10,8 @@
 #include "esp_event.h"
 #include "esp_wifi.h"
 #include "esp_hosted.h"
+#include "esp_hosted_os_abstraction.h"
+#include "esp_heap_caps.h"
 #include "esp_netif_sntp.h"
 #include "esp_sntp.h"
 
@@ -99,6 +101,43 @@ static void on_ip(void *arg, esp_event_base_t base, int32_t id, void *data)
     }
 }
 
+// ---------------------------------------------------------------------------
+// esp_hosted's DMA allocator, with large buffers moved to PSRAM.
+//
+// Stock, every aligned buffer esp_hosted asks for is INTERNAL DMA RAM. In SDIO
+// streaming mode the receive buffer grows to fit the largest burst the C6
+// sends, and a full WiFi scan result -- which the settings page triggers the
+// moment a phone opens it -- outgrows the largest free internal DMA block
+// (~23 KB here). The driver then hits assert(*buf) in sdio_rx_get_buffer and
+// the whole chip halts; the panel freezes on stale memory and shows cyan.
+//
+// The P4's SDMMC can DMA straight from PSRAM, and IDF's transaction path does
+// the cache maintenance itself, provided address AND size are whole cache
+// lines. So: small buffers (the fixed ~1.5 KB TX/RX packets) stay internal as
+// before, and anything bigger goes to PSRAM. Moving the big one out also stops
+// it eating the internal DMA RAM the microSD card and TLS depend on.
+//
+// Installed through esp_hosted's own public OS-abstraction table rather than
+// by patching the component, so it survives the component being re-fetched.
+// ---------------------------------------------------------------------------
+#define HOSTED_PSRAM_THRESHOLD  2048
+#define PSRAM_DMA_ALIGN         128     // L2 cache line (CONFIG_CACHE_L2_CACHE_LINE_128B)
+
+static void *frame_hosted_malloc_align(size_t size, size_t align)
+{
+    if (size <= HOSTED_PSRAM_THRESHOLD) {
+        void *p = heap_caps_aligned_alloc(align, size,
+                                          MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+        if (p) return p;
+        // fall through: a small buffer in PSRAM beats an assert
+    }
+    const size_t a = align > PSRAM_DMA_ALIGN ? align : PSRAM_DMA_ALIGN;
+    const size_t n = (size + a - 1) & ~(a - 1);
+    void *p = heap_caps_aligned_alloc(a, n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!p) ESP_LOGE(TAG, "hosted: no memory for a %u-byte DMA buffer", (unsigned)size);
+    return p;
+}
+
 esp_err_t wifi_begin(void)
 {
     s_events = xEventGroupCreate();
@@ -106,6 +145,8 @@ esp_err_t wifi_begin(void)
     // Bring up the co-processor link first. Everything else depends on it, and
     // its failure mode is completely different from a bad password.
     ESP_LOGI(TAG, "starting ESP32-C6 link over SDIO slot %d...", CONFIG_ESP_HOSTED_SDIO_SLOT);
+    // Before init: the SDIO driver allocates through this table from the start.
+    g_hosted_osi_funcs._h_malloc_align = frame_hosted_malloc_align;
     esp_err_t err = esp_hosted_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_hosted_init: %s", esp_err_to_name(err));
