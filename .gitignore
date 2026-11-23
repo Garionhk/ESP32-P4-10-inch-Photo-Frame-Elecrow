@@ -1,9 +1,42 @@
+# --- ESP-IDF build output (root project and stage0/) -----------------------
 build/
 managed_components/
+dependencies.lock
 sdkconfig
 sdkconfig.old
-dependencies.lock
-.DS_Store
+# Only sdkconfig.defaults is source; a generated sdkconfig would pin every
+# option and silently override changes to the defaults.
+
+# --- Toolchain / editor caches --------------------------------------------
+.cache/
+compile_commands.json
+.clangd
+.vscode/
+.idea/
+*.swp
+*~
+
+# --- Python (gui-flasher) -------------------------------------------------
 __pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- OS -------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+
+# --- Local-only files -----------------------------------------------------
+# Claude Code's per-machine settings
+.claude/
+# Secrets never belong in the repo (WiFi and Immich credentials live in NVS,
+# set from the web page, not in source)
+.env
+*.env
+secrets.h
+# Backups and leftovers from the port off the old Guition board
 *.old-board
-pre-elecrow-port-backup.tar.gz
+*.tar.gz
+# Flash images dumped from a device can contain WiFi credentials from NVS
+*.bin.dump
+flash_dump*.bin
