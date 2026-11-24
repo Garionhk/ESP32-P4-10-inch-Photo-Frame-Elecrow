@@ -6,8 +6,9 @@ an [Immich](https://immich.app) server, accepts uploads from a browser, and
 shows a clock / weather / sun / moon / air-quality bar along the bottom of the
 screen.
 
-> **Status:** running on hardware (board rev **V1.2**). Panel, touch, microSD,
-> photo playback, transitions, WiFi, the setup portal, and both landscape and
+> **Current release: [v1.0.0](https://github.com/Garionhk/ESP32-P4-10-inch-Photo-Frame-Elecrow/releases/tag/v1.0.0).**
+> Running on hardware (board rev **V1.2**). Panel, touch, microSD, photo
+> playback, transitions, WiFi, the setup portal, and both landscape and
 > portrait mode are verified on the device.
 
 ---
@@ -84,6 +85,38 @@ These cost real debugging time and are easy to undo by accident:
 
 ## Getting started
 
+There are two ways to get the firmware onto the board:
+
+- **Flash a release binary.** No ESP-IDF needed; just `esptool`.
+- **Build from source** with ESP-IDF (steps 1 and 2 below).
+
+Either way, then prepare a card (step 3) and do the first-boot setup (step 4).
+
+### Flash a release binary
+
+Download the files from the
+[latest release](https://github.com/Garionhk/ESP32-P4-10-inch-Photo-Frame-Elecrow/releases/latest)
+and install `esptool` (`pip install esptool`). Connect the board's **UART** USB
+port and turn its power switch on.
+
+**First install**: one image containing the bootloader, partition table and
+app, written from address 0. It also clears any saved settings.
+
+```bash
+esptool.py --chip esp32p4 -p /dev/cu.wchusbserial1440 -b 460800 write_flash 0x0 photoframe-v1.0.0-full.bin
+```
+
+**Updating a frame that already runs this firmware**: write only the app, which
+keeps your WiFi and other settings.
+
+```bash
+esptool.py --chip esp32p4 -p /dev/cu.wchusbserial1440 -b 460800 write_flash 0x20000 photoframe-v1.0.0-app.bin
+```
+
+Use your own serial port (`COM3` and similar on Windows). The board's chip
+must be a **pre-v3 ESP32-P4**, as on the V1.2 CrowPanel; the boot log prints
+`chip revision: v1.x`.
+
 ### 1. Toolchain
 
 - [ESP-IDF **v5.5.5**](https://docs.espressif.com/projects/esp-idf/en/v5.5.5/esp32p4/get-started/),
@@ -153,6 +186,7 @@ main/
   net/            wifi, web UI + uploads, Immich, weather, air quality, sun/moon
   ui/             info-bar overlay (LVGL), themes, icons, fonts
   settings.c      settings in NVS, set from the web page
+LICENSE           Apache License 2.0
 docs/
   decisions.md    why things are the way they are, newest first
   stage0_results.md
@@ -191,6 +225,15 @@ these.
 - This firmware was first written for that Guition board and then ported. The
   history is in the git log and in `docs/decisions.md`.
 
+## License
+
+Licensed under the [Apache License 2.0](LICENSE). Copyright 2026 Garionhk.
+
+Third-party components keep their own licenses: ESP-IDF and most Espressif
+components (Apache 2.0), `esp_new_jpeg` (Espressif MIT), LVGL (MIT), and IBM
+Plex Sans Condensed, which is embedded in the firmware (SIL Open Font License
+1.1, text in [main/ui/fonts/OFL.txt](main/ui/fonts/OFL.txt)).
+
 ## Credits
 
 - Pin and panel timing values come from Elecrow's
@@ -199,4 +242,4 @@ these.
   ESPHome configuration
   ([MaxGramser/homeassistant_espscreen](https://github.com/MaxGramser/homeassistant_espscreen/blob/main/docs/CROWPANEL101.md)).
 - Weather and air quality: [Open-Meteo](https://open-meteo.com).
-- Font: IBM Plex Sans Condensed (SIL Open Font License).
+- Font: IBM Plex Sans Condensed.

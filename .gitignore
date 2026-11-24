@@ -7,6 +7,10 @@ sdkconfig.old
 # Only sdkconfig.defaults is source; a generated sdkconfig would pin every
 # option and silently override changes to the defaults.
 
+# Release images, built locally and attached to GitHub releases rather than
+# committed (see README, "Flash a release binary")
+dist/
+
 # --- Toolchain / editor caches --------------------------------------------
 .cache/
 compile_commands.json
